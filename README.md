@@ -4,15 +4,19 @@ This is a tutorial for cross compilation of Gromacs and CP2K with the support of
 
 
 > 这段提示区就说明适合看这篇博客的场景吧。如果是单机仅需要单独使用CP2K，您可以考虑直接安装cp2k的psmp包，或者按照文档的toolchain部分解决；如果是单独使用gromacs的，我会推荐使用conda的conda-forge channel里的包，注意选择构建时cuda或者mpi的依赖。后续内容主要是面向cp2k和gromacs交叉编译的。
+> This tip indicates the scenarios suitable for reading this blog post. If you only need to use CP2K standalone on a single machine, you may consider directly installing the CP2K psmp package, or follow the toolchain section in the documentation. If you need to use GROMACS standalone, I recommend using the package from the conda-forge channel, paying attention to selecting dependencies for CUDA or MPI at build time. The following content is mainly aimed at cross‑compiling CP2K and GROMACS together.
 
-@[TOC](至 Gromacs 2024.4，与CP2K的交叉编译以实现QMMM的MD计算)
+# 至 Gromacs 2024.4，与CP2K的交叉编译以实现QMMM的MD计算
 
 ---
 首先这篇博客参考了计算化学公社的[Sob](http://bbs.keinsci.com/thread-21608-1-1.html)老师、[wuzhiyi](http://bbs.keinsci.com/thread-21783-1-1.html)老师，知乎的[supernova](https://zhuanlan.zhihu.com/p/700073814)老师以及bioexcel的[Dmitry Morozov](https://bioexcel.eu/webinar-multiscale-qm-mm-simulations-exploring-chemical-reactions-using-novel-gromacs-cp2k-interface-2020-12-08/)老师的方案，感谢他们博客和视频对我搭建和撰写这篇博客的帮助，希望我的博客可以帮助到其他后来者。(点前面蓝色的老师名字可以查看他们的原始文章)
-# 版本问题
-`CP2K: 2025.2及以前`
-`Gromacs: 2026以前（不含）`
-`Plumed: 无明确限制，但是个人建议10.0或9.3，根据gromacs`
+
+Acknowledgement to Sob, wuzhiyi, supernova and Dmitry Morozov. Click the links above on their names to read their original posts.
+
+# 版本问题 Versioning
+`CP2K: 2025.2及以前 Not later than 2025.2(inc.)`
+`Gromacs: 2026以前（不含）Before 2026(exc.)`
+`Plumed: 无明确限制，但是个人建议10.0或9.3，根据gromacs, No explicit restriction, 2.10.0 or 2.9.3 recommended`
 
 我构建的几个需求主要是：
 * 支持MPI (最少是单节点，虽然单节点未必需要mpi，tmpi或者就omp也行，但是我习惯有两级并行)
@@ -21,15 +25,23 @@ This is a tutorial for cross compilation of Gromacs and CP2K with the support of
 * 支持CP2K （单纯力学对于一些电荷或者弱相互作用有限，因为我的场景涉及计算化学），我的QM规模也可能在数百甚至到数千原子，所以我是希望支持XTB这种半经验的。那么2026的因为无法产生静态库，但XTB从2025.2才开始支持，所以我是只能使用2025.2，您要是不需要新特性，可能使用更早版本兼容性更好，但是2025.2是可以成功的。
 * 且三者中Gromacs作为主控，我个人是觉得gromacs虽然一开始学习构建时候这个学习成本曲线比较陡峭，但是封装和扩展比计算化学的软件好一些。（而且我是先会Gromacs和ORCA的，有一定路径依赖，您如果有其他方案，十分欢迎您分享交流）
 
+My main requirements:
+* MPI Support
+* CUDA Support
+* Plumed Support
+* CP2K Support
+* Gromacs as the main control
+
 ---
 
 `提示：以下是本篇文章正文内容，下面案例可供参考`
 
-# 一、Plumed安装
+# 一、Plumed安装 Installation of Plumed
 以下是wuzhiyi老师的方案，我原封不动搬运过来，这个方案对新的独立plumed依然是有效的，您注意修改版本和路径即可。如果您的架构不同，特别是弹性服务或者容器的环境，您的编译器可能需要手动指定或者您为这个环境单独构建。
 
-`wuzhiyi老师的方案`
+`wuzhiyi老师的方案 | Solution of wuzhiyi`
 先安装plumed，测试了[2.7.2发行版](https://github.com/plumed/plumed2/releases/tag/v2.10.0)(点蓝字链接可以跳转，原始人拷贝粘贴https://github.com/plumed/plumed2/releases/tag/v2.10.0)， 理论上应该V2.7分支的都可以。
+Install via the link above and unzip. Change dir into the root of plumed and build as following.
 放在/Users/formidable/src/解压生成plumed-2.10.0文件夹，进入文件夹，先进行配置
 ```bash
 然后直接用configure安装
@@ -39,21 +51,24 @@ make -j24
 make install
 ```
 
-
+If you are using modules, you can copy like this.
 用module的同学可以复制module文件方便设置环境变量
 ```bash
 cp /usr/local/plumed/2.10.0/lib/plumed/modulefile ~/privatemodules/plumed/2.10.0
 ```
 
-`新方案`
+`新方案 | New Solution` 
 
 新方案就是不使用独立的plumed，转而采用cp2k自动安装的plumed，环境更干净，除非您需要单独的plumed。但cp2k安装的plumed除了版本早几个小版本，对一些软件的新版不兼容外，其他我的体验是没太大区别（因为很多新版特性用不上，加上不兼容问题多了，并不是很建议追求最新版，最好是24-25期间的版本，大多有较为成熟的解决方案）
+
+Avoid stand-alone plumed, though it is newer. CP2K supports to install plumed under its directory which tidies the structure and has better compatibility.
 
 其实我不知道wuzhiyi老师使用独立的plumed的原因，因为似乎很早版本的cp2k的toolchain就有plumed的依赖。但是岁月史书一下，可能跟早期他参照的版本并没有明确开plumed依赖有关，所以他plumed部分可能是参照的plumed的文档。
 
 简单来说这一节几个大字就是`看cp2k部分，记得开--with-plumed=install`
+To simplify, see the chapter of cp2k and set `--with-plumed=install`.
 
-# 二、CP2K安装
+# 二、CP2K安装 Installation of CP2K
 ## cp2k安装
 可以从[cp2k仓库](https://github.com/cp2k/cp2k)clone或者下载release的tarball（https://github.com/cp2k/cp2k 点蓝字跳转，原始人请复制）。这里面的库您可以按需要安装，但是我建议对大多数人
 * `--with-plumed=system`，因为对于做科学计算的来说，openmpi大概率是系统已经有的，而且很可能您安装了ORCA等其他对mpi版本可能有限制的软件，您最好确认谁对版本较为宽容，cp2k通常要求不严格。并且您也可以选择其他系列的mpi，这个就需要看您的架构和偏好了。或者您也可以像我一样，因为受限于已经存在的mpi版本，所以专门让cp2k安装自己使用的mpi以避免冲突。
