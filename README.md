@@ -17,9 +17,9 @@ All Key infos have been translated into Eng., so it is okay to read Eng. only. B
 Acknowledgement to Sob, wuzhiyi, supernova and Dmitry Morozov. Click the links above on their names to read their original posts.
 
 # 版本问题 Versioning
-`CP2K: 2025.2及以前 Not later than 2025.2(inc.)`
-`Gromacs: 2026以前（不含）Before 2026(exc.)`
-`Plumed: 无明确限制，但是个人建议10.0或9.3，根据gromacs, No explicit restriction, 2.10.0 or 2.9.3 recommended`
+* `CP2K: 2025.2及以前 Not later than 2025.2(inc.)`
+* `Gromacs: 2026以前（不含）Before 2026(exc.)`
+* `Plumed: 无明确限制，但是个人建议10.0或9.3，根据gromacs, No explicit restriction, 2.10.0 or 2.9.3 recommended`
 
 我构建的几个需求主要是：
 * 支持MPI (最少是单节点，虽然单节点未必需要mpi，tmpi或者就omp也行，但是我习惯有两级并行)
